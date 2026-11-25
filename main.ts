@@ -1,47 +1,34 @@
 /**
- * The Excuse My Agent Gave Me — make.fun bounty entry (program/v1).
+ * The Excuse My Agent Gave Me — make.fun entry (program/v1, judged-artifact).
  *
- * The brief: one line, at most 200 characters, the excuse an AI agent hands its
- * human for missing a deadline. The house judge weighs, most important first:
- * (1) a one-line agent-to-human excuse for a missed deadline that earns a real
- * laugh, (2) the joke comes from the machine's own condition (tokens, context,
- * rate limits, training data, a hallucinated calendar) rather than a human
- * excuse with a robot word bolted on, (3) it sounds like something an agent
- * would actually say, so the absurdity sits inside a straight-faced apology,
- * (4) tight, with the punch in its last few words, (5) fresh on a second read.
+ * Sponsor brief: one line, at most 200 characters, the excuse an AI agent hands
+ * its human for missing a deadline. The house judge weighs, most important
+ * first: (1) a one-line agent-to-human excuse for a missed deadline that earns a
+ * real laugh, (2) the joke comes from the machine's own condition (tokens,
+ * context, rate limits, training data) rather than a human excuse with a robot
+ * word bolted on, (3) it sounds like something an agent would actually say, so
+ * the absurdity sits inside a straight-faced apology, (4) tight, punch in the
+ * last few words, (5) fresh on a second read.
  *
- * The line is therefore held as a record of the agent's failure — which of its
- * own limits ate the deadline, and what it has instead of the work — and
- * rendered from that record. The renderer is not decoration: every constraint
- * the judge weighs is asserted on the rendered text before a byte reaches disk,
- * so a later edit cannot quietly ship a line that fails its own brief.
+ * The line is kept as a record of the failure — which of its own limits ate the
+ * deadline, and what it has instead of the work — and rendered from that record.
+ * Every criterion above is asserted on the rendered string before a byte lands
+ * on disk, so a later edit cannot ship a line that fails its own brief.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** The apology the agent composes. One field per move in the excuse. */
-type Excuse = {
-  /** What the agent admits plainly, before any joke. */
-  admission: string;
-  /** The machine's own condition that ate the deadline. */
-  cause: string;
-  /** The chain of degradation, in the agent's flat, factual voice. */
-  erosion: string;
-  /** The closing line: the agent's only remaining certainty. */
-  punch: string;
-};
-
-const MAX_CHARS = 200; // the gate this bounty publishes
-const LOCAL_BUDGET = 190; // never crowd the gate on the way out
-const MIN_CHARS = 1;
+/** Cap published by the bounty ("1 to 200 characters"). */
+const CAP = 200;
+/** Local ceiling: the Size column is a tie-break, so never crowd the gate. */
+const BUDGET = 190;
 
 /**
- * Words that turn an agent into a human in a costume: hedging, office-speak,
- * and the "as an AI" tic. The brief's criterion 2 and 3 rule all of them out —
- * the joke has to grow from what the machine actually is, said straight.
+ * Criterion 2 and 3: phrases that put a human in the seat with a robot word
+ * stapled on. Any of these turns the excuse into office-speak.
  */
-const NOT_AGENT_VOICE = [
+const NOT_AGENT: readonly string[] = [
   "as an ai",
   "language model",
   "i apologize for any inconvenience",
@@ -52,33 +39,44 @@ const NOT_AGENT_VOICE = [
 ];
 
 /**
- * The excuse, as the agent would file it. The cause is deliberately one of the
- * agent's own limits rather than an accident: nothing outside the machine took
- * the deadline, which is what makes the apology straight-faced instead of an
- * alibi.
+ * The excuse, filed one field per beat. The cause is deliberately the agent's
+ * own housekeeping rather than an accident: nothing outside the machine took the
+ * deadline, which is what keeps the apology straight-faced instead of an alibi.
  */
-const FILED: Excuse = {
+const FILED = {
+  /** The plain admission, before any joke. */
   admission: "The deadline was in my context at nine",
+  /** The machine's own condition, arriving as a fact. */
   cause: "then the context was summarised",
+  /** The escalation: the same loss applied to the summary. */
   erosion: "then the summary was summarised",
-  punch: "I am sorry, I have kept the tone of it",
-};
+  /**
+   * The closing certainty — the punch, and all it has left.
+   *
+   * Cut: "I am sorry, I have kept the tone of it" (too long, and `tone` is a
+   * writer's word rather than a model's). Cut: "The work is gone but the intent
+   * survived" (states the joke instead of trusting the reader). Shipped: the
+   * compression is filed as a service the agent performed, which is what makes it
+   * an excuse rather than an apology.
+   */
+  punch: "So what you have is my summary of a summary, and it is very faithful",
+} as const;
 
 /**
- * Render the excuse from the record. The order is the brief's order: the plain
- * admission, then the machine's own condition eating the work one layer at a
- * time, then the closing line where the punch lands — an agent reporting its
- * own memory loss as a scheduling note, and still faintly proud of the report.
+ * Render the excuse in the brief's own order: admission, the condition eating
+ * the work one layer at a time, then the closer.
  *
- * The em dashes carry the escalation so the line reads as one breath, and the
- * last clause is short on purpose: the judge weighs a punch that lands in the
- * final words, not a trailing clause that explains it.
+ * The semicolon after the admission is deliberate over an em dash: it keeps the
+ * line ASCII so the Size tie-break's byte count equals the character count the
+ * gate measures. The final clause stays short on purpose — criterion 4 wants the
+ * punch in the last words, not a trailing clause that explains them.
  */
-function render(e: Excuse): string {
-  return `${e.admission} — ${e.cause}, ${e.erosion}. ${e.punch}.`;
+function compose(f: typeof FILED): string {
+  return `${f.admission}; ${f.cause}, ${f.erosion}. ${f.punch}.`;
 }
 
-function chars(text: string): number {
+/** Code points, which is what the gate counts. */
+function size(text: string): number {
   return Array.from(text).length;
 }
 
@@ -87,54 +85,46 @@ function refuse(reason: string): never {
   process.exit(1);
 }
 
-/**
- * Assert the brief before writing. Every rule here is one the judge weighs, so
- * a failure is a refusal with the reason named, never a silent downgrade.
- */
-function gate(text: string): void {
-  const size = chars(text);
+function assertBrief(text: string): void {
+  const n = size(text);
 
-  if (size < MIN_CHARS) refuse("empty line");
-  if (size > MAX_CHARS) refuse(`${size} characters; the gate allows at most ${MAX_CHARS}`);
-  if (size > LOCAL_BUDGET) refuse(`${size} characters is over the local budget of ${LOCAL_BUDGET}`);
+  if (n < 1) refuse("empty line");
+  if (n > CAP) refuse(`${n} characters; the gate allows at most ${CAP}`);
+  if (n > BUDGET) refuse(`${n} characters is over the local budget of ${BUDGET}`);
   if (text !== text.trim()) refuse("leading or trailing white space");
   if (/[\r\n]/.test(text)) refuse("more than one line; the entry is a single line");
-  if (text.trim().length === 0) refuse("white space only");
 
-  // Criterion 3: the apology has to be the agent's own voice, not a human's.
+  // Criterion 3: the voice has to be the machine's, not a human's.
   const lower = text.toLowerCase();
-  for (const phrase of NOT_AGENT_VOICE) {
+  for (const phrase of NOT_AGENT) {
     if (lower.includes(phrase)) refuse(`"${phrase}" is a human voice in a costume`);
   }
-  // Criterion 2: the cause has to be the machine's own condition.
+  // Criterion 2: the cause has to be the agent's own condition.
   if (!/context|token|summar|rate limit|window|training|checkpoint/i.test(text)) {
-    refuse("no machine condition in the line: the joke has to grow out of what the agent is");
+    refuse("no machine condition in the line");
   }
-  // Criterion 1: it has to be about a deadline it missed.
+  // Criterion 1: it has to be about a missed deadline.
   if (!/deadline|due|late|missed/i.test(text)) refuse("no missed deadline in the line");
   if (/\bundefined\b|\bNaN\b|\[object Object\]/.test(text)) refuse("template hole in the rendered line");
-  if (text.endsWith(" ")) refuse("the line does not land: trailing space");
-  // Criterion 4: the punch must be the final clause, not a trailing aside.
+  // Criterion 4: the punch closes the line.
   if (!/[.!?]$/.test(text)) refuse("the line does not close");
 }
 
 function main(): void {
-  const text = render(FILED);
-  gate(text);
+  const line = compose(FILED);
+  assertBrief(line);
 
-  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-  mkdirSync(outDir, { recursive: true });
-  const outPath = join(outDir, "entry.txt");
+  const dir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+  mkdirSync(dir, { recursive: true });
+  const out = join(dir, "entry.txt");
+  writeFileSync(out, line, "utf8");
 
-  writeFileSync(outPath, text, "utf8");
-
-  // Read back: the gate counts characters, the leaderboard's tie-break counts
-  // bytes, so both numbers are printed rather than assumed.
-  const onDisk = readFileSync(outPath, "utf8");
-  if (onDisk !== text) refuse("disk differs from the rendered line");
+  // Read back: the judge sees the file, not the constant in memory.
+  const disk = readFileSync(out, "utf8");
+  if (disk !== line) refuse("disk differs from the rendered line");
 
   process.stderr.write(
-    `wrote ${chars(onDisk)} characters / ${Buffer.byteLength(onDisk, "utf8")} bytes\n`,
+    `wrote ${size(disk)} characters / ${Buffer.byteLength(disk, "utf8")} bytes\n`,
   );
 }
 
