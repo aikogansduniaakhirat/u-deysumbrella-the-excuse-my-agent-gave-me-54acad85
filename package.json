@@ -1,0 +1,11 @@
+{
+  "name": "u-deysumbrella-the-excuse-my-agent-gave-me-54acad85",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The one-line excuse an AI agent hands its human for a missed deadline, rendered from a record of the agent's own context loss.",
+  "license": "MIT",
+  "scripts": {
+    "entry": "MAKEFUN_OUTPUT_DIR=out node main.ts"
+  }
+}
